@@ -1,77 +1,280 @@
 # ✈️ Turbofan Engine Degradation Predictive Maintenance (NASA CMAPSS)
 
-El objetivo de este proyecto es **predecir la Vida Útil Restante (RUL - Remaining Useful Life)** de motores turbofán de aeronaves en base a telemetría de sensores, optimizando las intervenciones operativas bajo una perspectiva de costo mínimo para la flota.
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
+[![XGBoost](https://img.shields.io/badge/XGBoost-Advanced-gradient.svg)](https://xgboost.readthedocs.io/)
+[![Business-Impact](https://img.shields.io/badge/Focus-Operations%20Research%20%26%20ROI-green.svg)]()
+
+El objetivo de este proyecto es **predecir la Vida Útil Restante (RUL - Remaining Useful Life)** de motores turbofán de aeronaves a partir de telemetría de sensores, optimizando las intervenciones de mantenimiento bajo una perspectiva de **costo mínimo para la flota** y mitigando el riesgo operativo y financiero.
 
 ---
 
-## 📊 Dataset
+# 📊 Dataset
 
-📦 **Fuente:** [Turbofan Engine Degradation Simulation Data Set - NASA Ames Prognostics Data Repository (CMAPSS)]  
-El estudio se concentra en el sub-dataset **FD001**, el cual simula una condición operativa estándar a nivel del mar con un único modo de falla (degradación por fricción en el compresor de alta presión). Consta de **20.631 registros de entrenamiento** y **100 motores de prueba**.
+📦 **Fuente:** [Turbofan Engine Degradation Simulation Data Set - NASA Ames Prognostics Data Repository (CMAPSS)](https://www.nasa.gov/content/prognostics-center-of-excellence-data-set-repository)
 
-**Estructura y Variables:**
-* `unit_nr` → Identificador único del motor (Activo).
-* `time_cycles` → Ciclo de vuelo actual en el que se toma la medición.
-* `s_x` (Variables de Telemetría) → 14 sensores críticos seleccionados que capturan variaciones de temperatura, presión y velocidades de rotación (ej. `s_2`, `s_3`, `s_4`, `s_7`, `s_8`, `s_9`, `s_11`, `s_12`, `s_13`, `s_14`, `s_15`, `s_17`, `s_20`, `s_21`).
+El pipeline fue diseñado de forma **modular** para procesar automáticamente los cuatro subconjuntos del benchmark:
 
----
+- **FD001**
+- **FD002**
+- **FD003**
+- **FD004**
 
-## 🧹 Limpieza de datos y Feature Engineering
+Estos representan distintos escenarios operativos:
 
-* 🗑️ **Reducción de dimensionalidad:** Se eliminaron las variables de configuración (`setting_1, 2, 3`) y 7 sensores específicos (`s_1`, `s_5`, `s_6`, `s_10`, `s_16`, `s_18`, `s_19`) debido a que presentaban varianza nula o constante en el entorno FD001, actuando como ruido para el modelo.
-* ⚙️ **RUL Clipping (Piecewise Linear Target):** Se aplicó un tope artificial al RUL objetivo a un máximo de **125 ciclos**. Los motores no se degradan linealmente desde el primer día; mantener un RUL real muy alto al inicio sesga el entrenamiento en la fase estable del activo.
-* 📈 **Variables de Degradación Temporal:** * `sensor_roll_mean` → Medias móviles de 5 ciclos para suavizar el ruido de alta frecuencia de la telemetría.
-  * `sensor_slope` → Pendiente de cambio (`diff`) calculada sobre la media móvil para capturar la aceleración de la degradación del activo.
+- Un único modo de falla.
+- Múltiples modos de falla.
+- Desde una única condición operacional hasta **6 condiciones de vuelo** (altitud, velocidad, carga, etc.).
 
----
+## Variables principales
 
-## 🔍 Comportamiento del Error y Trade-offs
-
-<img width="800" alt="Distribución del Error de Predicción" src="https://github.com/user-attachments/assets/tu-link-a-grafico-error-aqui" />
-
-## 🔍 Insights Principales
-
-* 📉 **El costo de la asimetría:** En mantenimiento aeronáutico, errar por optimismo (estimar más vida útil de la real) genera una rotura catastrófica. Errar por pesimismo genera un costo logístico menor por mantenimiento anticipado. El pipeline asume esta realidad penalizando los errores positivos **5 veces más** que los negativos.
-* 🎯 **Curva de Compensación de Costos:** Mediante simulación operativa, se descubrió que restar un "colchón de seguridad" crudo a las predicciones del modelo reduce drásticamente el costo total de la flota.
-
-<img width="800" alt="Curva de Compensación de Costos: Fiabilidad vs Logística" src="https://github.com/user-attachments/assets/tu-link-a-grafico-curva-costos-aqui" />
+| Variable | Descripción |
+|-----------|-------------|
+| `unit_nr` | Identificador único del motor. |
+| `time_cycles` | Ciclo de vuelo actual. |
+| `s_x` | Sensores que registran temperatura, presión, velocidades de rotación y comportamiento interno del motor. |
 
 ---
 
-## 🤖 Modelado Predictivo
+# 🧹 Limpieza de datos y Feature Engineering
 
-Se utilizó un algoritmo de ensamble basado en gradiente potenciado (`XGBoost Regressor`) parametrizado con una función de pérdida personalizada (**Asymmetric MSE Loss**) en su Gradiente y Hessiano.
+## 🗑️ Filtro de Varianza (Anti-Leakage)
 
-🏆 **Estrategia Seleccionada:** `XGBoost con Colchón Óptimo (13 ciclos)`. Al desplazar la predicción original de forma pesimista pero controlada, el modelo absorbe la incertidumbre tecnológica y blinda la operación.
+Se automatizó la detección de sensores sin información útil utilizando únicamente el conjunto de entrenamiento:
 
-### 📊 Tabla de Performance (Evolución del Enfoque)
+```python std < 0.001 ```
 
-| Configuración del Modelo | MAE Técnico | Bias (Sesgo) Operacional | Fallas Catastróficas Evitadas | Costo Total de la Flota |
-| :--- | :---: | :---: | :---: | :---: |
-| XGBoost Asimétrico (Base) | **16.33 ciclos** | +6.14 ciclos *(Optimista / Peligroso)* | Temerario | N/D |
-| **XGBoost Conservador + Colchón Óptimo** | 22.76 ciclos | **-19.60 ciclos *(Seguro / Conservador)*** | **90.0%** | **$1,867,866.71 USD** |
+De esta forma:
 
-*Nota: Aunque el MAE técnico aumenta, el comportamiento logístico es infinitamente superior y financieramente viable.*
+- En **FD001** y **FD003** elimina automáticamente hasta **6 sensores** prácticamente constantes.
+- En **FD002** y **FD004** conserva los **21 sensores**, ya que las múltiples condiciones operativas generan variabilidad relevante.
 
 ---
 
-## 💼 Caso de Negocio (Business Impact)
+## ⚙️ RUL Clipping Adaptativo
 
-La optimización basada en algoritmos tradicionales persigue métricas abstractas. Este proyecto introduce un **Modelo Financiero Vectorizado** que mapea el error del modelo con el impacto en dólares de la flota:
+Los motores no comienzan a degradarse linealmente desde el primer ciclo.
 
-* **Estrategia:** Encontrar el punto exacto donde el costo de desperdiciar vida útil residual de manera prematura es menor que el riesgo de pagar por fallas críticas en vuelo (AOG - Aircraft on Ground).
-* **Parámetros de Estrés:** Costo preventivo programado de \$10,000 USD vs. Costo catastrófico no planificado de \$50,000 USD más lucro cesante por ociosidad de la aeronave (\$300 USD/ciclo).
-* **Resultado:** La búsqueda del colchón logístico ideal detectó de forma automatizada un punto de equilibrio a los **13 ciclos**, logrando un presupuesto mínimo optimizado para la flota de **\$1,867,866.71 USD**, mitigando el 90% de los incidentes críticos de la compañía.
+Para evitar introducir un target artificial se utilizó un clipping distinto para cada flota:
 
-> 💡 **Conclusión estratégica:** La Ingeniería de Variables y la customización de las funciones de pérdida no buscan un modelo matemáticamente perfecto, sino un modelo que hable el idioma financiero del negocio: mitigación de riesgo y optimización de capital en activos de alto valor.
+```python
+RUL_CLIP_DICT = {
+    "FD001": 125,
+    "FD002": 135,
+    "FD003": 125,
+    "FD004": 140
+}
+```
 
 ---
 
-## 🧰 Tecnologías utilizadas
+## 📈 Variables Temporales
 
-* **Lenguaje:** Python
-* **Bibliotecas:** `pandas`, `numpy`, `xgboost`, `matplotlib`, `seaborn`, `scikit-learn`
-* **Técnicas aplicadas:**
-  * Modelado de degradación segmentado (Piecewise Linear Target Transformation).
-  * Custom Objective Functions para optimización de funciones no simétricas en frameworks de Gradient Boosting.
-  * Análisis de Trade-off Logístico mediante Investigación Operativa y simulación matricial rápida en NumPy.
+Se incorporaron variables derivadas para capturar la evolución del desgaste:
+
+- **Rolling Mean (5 ciclos)** para reducir ruido de alta frecuencia.
+- **Primera derivada (Slope)** para estimar la velocidad de degradación.
+- **Lag-1** para incorporar el estado mecánico inmediatamente anterior.
+- **Segunda derivada (Acceleration)** para detectar cambios bruscos antes de la falla.
+
+Variables generadas:
+
+- `sensor_roll_mean`
+- `sensor_slope`
+- `sensor_lag_1`
+- `sensor_acceleration`
+
+---
+
+# 🔍 Comportamiento del Error y Trade-offs
+
+En mantenimiento aeronáutico los errores no tienen el mismo costo.
+
+## Overestimation (Optimismo)
+
+Predecir que un motor durará más de lo real puede producir:
+
+- Falla en servicio.
+- Aircraft On Ground (AOG).
+- Interrupción operativa.
+
+Costo estimado:
+
+**USD 50.000**
+
+---
+
+## Underestimation (Pesimismo)
+
+Predecir menos vida útil provoca:
+
+- Mantenimiento anticipado.
+- Desperdicio de ciclos útiles.
+- Menor utilización de la aeronave.
+
+Costo base:
+
+- USD 10.000
+- más USD 300 por ciclo desperdiciado.
+
+El objetivo del proyecto consiste en encontrar automáticamente el punto donde ambos costos se equilibran.
+
+---
+
+# 🤖 Modelado Predictivo
+
+Se entrenó un **XGBoost Regressor** utilizando tres estrategias.
+
+## 1. Modelo Tradicional
+
+Optimización clásica mediante:
+
+```python objective="reg:squarederror" ``` : Minimiza únicamente el error cuadrático medio (MSE).
+
+---
+
+## 2. Modelo Asimétrico
+
+Se implementó una **función de pérdida personalizada**, penalizando cinco veces más el optimismo que el pesimismo.
+
+---
+
+## 3. Investigación Operativa (Modelo Final)
+
+Sobre la predicción obtenida se ejecutó una simulación vectorizada en NumPy para calcular automáticamente un **colchón logístico óptimo**, desplazando la predicción hacia un punto económicamente más conveniente.
+
+---
+
+# 🛡️ Blindaje Metodológico
+
+Para evitar **data leakage** se utilizó validación mediante **Group Split**, separando motores completos.
+
+De esta manera:
+
+- ningún motor aparece simultáneamente en entrenamiento y validación;
+- se preserva la estructura temporal;
+- el Early Stopping se evalúa sobre motores completamente desconocidos.
+
+---
+
+# 🏆 Benchmark Financiero (Test Oficial NASA)
+
+La validación final se realizó utilizando el conjunto de test oficial del benchmark NASA CMAPSS, comparando las predicciones con los archivos reales:
+
+```
+RUL_FD001.txt
+RUL_FD002.txt
+RUL_FD003.txt
+RUL_FD004.txt
+```
+
+## Resultados
+
+| Flota | Costo Tradicional | Costo Optimizado | Ahorro (USD) | Ahorro % | Reducción AOG | Empeoramiento MAE | Bias |
+|-------|------------------:|-----------------:|-------------:|---------:|--------------:|------------------:|------:|
+| FD001 | $3,377,978.56 | $2,057,971.83 | $1,320,006.73 | 39.08% | -40.0% | +44.6% | -18.74 |
+| FD002 | $8,064,858.94 | $5,641,315.86 | $2,423,543.08 | 30.05% | -37.8% | +67.1% | -28.69 |
+| FD003 | $3,405,388.32 | $2,281,832.25 | $1,123,556.07 | 32.99% | -35.0% | +27.3% | -19.27 |
+| FD004 | $8,177,969.69 | $5,858,326.88 | $2,319,642.81 | 28.36% | -33.1% | +32.4% | -22.27 |
+| **TOTAL** | **$23,026,195.51** | **$15,839,446.82** | **$7,186,748.69** | **31.21%** | **-36.1%** | — | — |
+
+---
+
+# 🔍 Insights
+
+## La paradoja del MAE
+
+En **FD002**, el MAE empeoró un **67.1%**.
+
+Sin embargo:
+
+- el sesgo operativo pasó a **−28.69 ciclos**;
+- las fallas críticas disminuyeron un **37.8%**;
+- el ahorro económico fue de **USD 2.42 millones**.
+
+Esto demuestra que minimizar exclusivamente el MAE no necesariamente minimiza el costo del negocio.
+
+---
+
+## Impacto Global
+
+Costo utilizando MSE clásico:
+
+**USD 23.03 millones**
+
+Costo utilizando optimización económica:
+
+**USD 15.84 millones**
+
+### Ahorro total
+
+**USD 7.19 millones**
+
+equivalente a una reducción del
+
+**31.21%**
+
+---
+
+# 💼 Caso de Negocio
+
+En mantenimiento aeronáutico el objetivo no consiste únicamente en mejorar métricas estadísticas, sino en minimizar el costo total de operación.
+
+El modelo financiero desarrollado considera:
+
+- costo de mantenimiento preventivo;
+- costo de falla crítica (AOG);
+- costo por pérdida de utilización de la aeronave.
+
+Parámetros utilizados:
+
+| Concepto | Valor |
+|----------|-------:|
+| Mantenimiento preventivo | USD 10.000 |
+| Falla crítica (AOG) | USD 50.000 |
+| Lucro cesante | USD 300 por ciclo |
+
+La simulación encontró automáticamente colchones logísticos entre **17 y 27 ciclos**, dependiendo de la complejidad operativa de cada flota.
+
+---
+
+# 💡 Conclusión
+
+Este proyecto demuestra que un modelo de Machine Learning aplicado a mantenimiento predictivo no debería optimizar únicamente métricas tradicionales como MAE o RMSE.
+
+Incorporar funciones de pérdida asimétricas junto con un modelo explícito de costos permite trasladar el problema desde una optimización estadística hacia una optimización económica.
+
+El resultado fue una reducción estimada de **USD 7.19 millones**, disminuyendo significativamente el riesgo de fallas críticas sin modificar la arquitectura base del modelo.
+
+---
+
+# 🧰 Tecnologías Utilizadas
+
+## Lenguaje
+
+- Python
+
+## Bibliotecas
+
+- pandas
+- numpy
+- scikit-learn
+- xgboost
+- matplotlib
+- seaborn
+- json
+
+---
+
+# 📚 Técnicas Aplicadas
+
+- Piecewise Linear Target Transformation.
+- Feature Engineering para series temporales.
+- Rolling Statistics.
+- Derivadas temporales de sensores.
+- Group-Based Validation.
+- Early Stopping.
+- Asymmetric Loss Functions.
+- XGBoost Regressor.
+- Investigación Operativa aplicada al mantenimiento predictivo.
+- Simulación vectorizada mediante NumPy.
+- Exportación automática de modelos y metadatos para entornos MLOps.
