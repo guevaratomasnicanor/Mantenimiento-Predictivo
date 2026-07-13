@@ -1,4 +1,3 @@
-```markdown
 # ✈️ Turbofan Engine Degradation Predictive Maintenance (NASA CMAPSS)
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
