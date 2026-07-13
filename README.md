@@ -46,16 +46,6 @@ Se compararon tres estrategias utilizando **XGBoost Regressor**:
 2. **Modelo Asimétrico**, penalizando cinco veces más el optimismo que el pesimismo.
 3. **Modelo Final**, incorporando una optimización mediante Investigación Operativa que calcula automáticamente un colchón logístico para minimizar el costo económico de la flota.
 
-La función de pérdida personalizada utilizada fue:
-
-\[
-Loss=
-\begin{cases}
-5(y_{pred}-y_{true})^2 & \text{si } y_{pred}>y_{true}\\
-(y_{pred}-y_{true})^2 & \text{si } y_{pred}\le y_{true}
-\end{cases}
-\]
-
 La validación se realizó mediante **Group Split**, evitando data leakage entre motores y preservando la estructura temporal.
 
 ---
